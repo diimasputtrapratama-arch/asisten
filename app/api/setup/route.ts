@@ -113,7 +113,7 @@ export async function GET(req: Request) {
 
       update: {
         providerId: groq.id,
-        name: "Groq Llama",
+        name: "Groq GPT-OSS 120B",
         model:
           "openai/gpt-oss-120b",
         enabled: true,
@@ -123,7 +123,7 @@ export async function GET(req: Request) {
       create: {
         id: "groq-llama-primary",
         providerId: groq.id,
-        name: "Groq Llama",
+        name: "Groq GPT-OSS 120B",
         model:
           "openai/gpt-oss-120b",
         enabled: true,
