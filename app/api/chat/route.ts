@@ -5,8 +5,7 @@ import { db } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
 
 import {
-  providerStream,
-  normalizeStream,
+  generateAIResponse,
 } from "@/lib/ai";
 
 export const runtime = "nodejs";
@@ -34,7 +33,7 @@ export async function POST(
     }
 
     /* =========================================
-       BODY
+       REQUEST
     ========================================= */
 
     const body =
@@ -127,110 +126,57 @@ export async function POST(
 Kamu adalah Putra AI.
 
 Jawablah secara natural,
-jelas, membantu, dan tidak terlalu
-bertele-tele kecuali pengguna meminta
-penjelasan yang detail.
+ramah, jelas, dan membantu.
 
 Gunakan bahasa Indonesia kecuali
 pengguna meminta bahasa lain.
 
-Jangan mengatakan bahwa kamu adalah
-database, API, sistem backend, atau
-program kecuali pengguna sedang
-membahas hal teknis tersebut.
+Jangan terlalu panjang kecuali
+pengguna meminta penjelasan detail.
+
+Jangan menyebut database, API,
+backend, provider, model AI, atau
+sistem internal kecuali pengguna
+sedang membicarakan hal teknis.
 `,
     ]
       .filter(Boolean)
       .join("\n");
 
     /* =========================================
-       PRIMARY PROVIDER
-    ========================================= */
-
-    const primaryProvider =
-      "gemini";
-
-    const primaryModel =
-      "gemini-3.8-flash";
-
-    console.log(
-      "PUTRA CHAT START",
-      {
-        assistant:
-          assistant.name,
-
-        provider:
-          primaryProvider,
-
-        model:
-          primaryModel,
-
-        messages:
-          messages.length,
-      }
-    );
-
-    /* =========================================
        AI
     ========================================= */
 
     const result =
-      await providerStream(
-        primaryProvider,
+      await generateAIResponse(
         messages,
-        primaryModel,
         system
       );
 
-    /*
-      PENTING:
-
-      provider di sini adalah provider
-      SEBENARNYA yang berhasil.
-
-      Kalau Gemini gagal lalu Groq berhasil,
-      result.provider = "groq".
-    */
-
     console.log(
-      "PUTRA CHAT PROVIDER",
-      result.provider
+      "PUTRA RESPONSE:",
+      {
+        provider:
+          result.provider,
+
+        length:
+          result.text.length,
+      }
     );
-
-    /* =========================================
-       NORMALIZE STREAM
-    ========================================= */
-
-    const stream =
-      normalizeStream(
-        result.provider,
-        result.body
-      );
 
     /* =========================================
        RESPONSE
     ========================================= */
 
-    return new Response(
-      stream,
-      {
-        status: 200,
+    return NextResponse.json({
+      success: true,
 
-        headers: {
-          "Content-Type":
-            "text/plain; charset=utf-8",
+      provider:
+        result.provider,
 
-          "Cache-Control":
-            "no-cache, no-transform",
-
-          "X-Accel-Buffering":
-            "no",
-
-          Connection:
-            "keep-alive",
-        },
-      }
-    );
+      message:
+        result.text,
+    });
   } catch (error) {
     console.error(
       "CHAT_API_ERROR:",
@@ -239,6 +185,8 @@ membahas hal teknis tersebut.
 
     return NextResponse.json(
       {
+        success: false,
+
         error:
           error instanceof Error
             ? error.message
