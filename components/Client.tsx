@@ -6,7 +6,6 @@ type Assistant = {
   id: string;
   name: string;
   description?: string | null;
-  modelName?: string | null;
 };
 
 type User = {
@@ -37,43 +36,41 @@ export default function Client({ user, assistants }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const [listening, setListening] = useState(false);
-  const [calling, setCalling] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const recognitionRef = useRef<any>(null);
-  const callRef = useRef(false);
-
-  const selectedAssistant =
-    assistants.find((a) => a.id === assistantId) ??
+  const assistant =
+    assistants.find((x) => x.id === assistantId) ??
     assistants[0];
 
-  /*
-   * =========================
-   * TEXT CHAT
-   * =========================
-   */
+  async function sendMessage() {
+    const text = input.trim();
 
-  async function sendMessage(text?: string) {
-    const value = (text ?? input).trim();
+    if (!text) return;
 
-    if (!value || !assistantId || loading) {
+    if (!assistantId) {
+      setError("Assistant belum tersedia.");
       return;
     }
 
+    if (loading) return;
+
+    setError("");
+
     const userMessage: Message = {
       role: "user",
-      content: value,
+      content: text,
     };
 
-    const nextMessages = [
-      ...messages,
-      userMessage,
-    ];
+    const conversation = [...messages, userMessage];
 
-    setMessages(nextMessages);
+    setMessages(conversation);
     setInput("");
     setLoading(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const response = await fetch("/api/chat", {
@@ -81,58 +78,55 @@ export default function Client({ user, assistants }: Props) {
         headers: {
           "Content-Type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           assistantId,
-          messages: nextMessages,
+          messages: conversation,
         }),
       });
 
       if (!response.ok) {
-        const data = await response
-          .json()
-          .catch(() => ({}));
+        const data = await response.json().catch(() => null);
 
         throw new Error(
-          data.error ||
-            "Gagal menghubungi Putra AI."
+          data?.error ||
+            `Server error ${response.status}`
         );
       }
 
-      const reader =
-        response.body?.getReader();
-
-      if (!reader) {
+      if (!response.body) {
         throw new Error(
-          "Browser tidak mendukung streaming."
+          "Server tidak mengirim response."
         );
       }
-
-      const decoder =
-        new TextDecoder();
-
-      let answer = "";
 
       setMessages([
-        ...nextMessages,
+        ...conversation,
         {
           role: "assistant",
           content: "",
         },
       ]);
 
-      while (true) {
-        const { value, done } =
-          await reader.read();
+      const reader =
+        response.body.getReader();
 
-        if (done) break;
+      const decoder = new TextDecoder();
+
+      let answer = "";
+
+      while (true) {
+        const result = await reader.read();
+
+        if (result.done) break;
 
         answer += decoder.decode(
-          value,
+          result.value,
           { stream: true }
         );
 
         setMessages([
-          ...nextMessages,
+          ...conversation,
           {
             role: "assistant",
             content: answer,
@@ -140,32 +134,60 @@ export default function Client({ user, assistants }: Props) {
         ]);
       }
 
-      return answer;
-    } catch (error) {
+      answer += decoder.decode();
+
+      if (!answer.trim()) {
+        throw new Error(
+          "Putra tidak mengirim jawaban."
+        );
+      }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.name === "AbortError"
+      ) {
+        return;
+      }
+
       const message =
-        error instanceof Error
-          ? error.message
+        err instanceof Error
+          ? err.message
           : "Terjadi kesalahan.";
 
+      console.error("CHAT ERROR:", err);
+
+      setError(message);
+
       setMessages([
-        ...nextMessages,
+        ...conversation,
         {
           role: "assistant",
-          content: message,
+          content: `⚠️ ${message}`,
         },
       ]);
-
-      return message;
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
   }
 
-  /*
-   * =========================
-   * TEXT TO SPEECH
-   * =========================
-   */
+  function stopGeneration() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+  }
+
+  function handleKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+      sendMessage();
+    }
+  }
 
   function speak(text: string) {
     if (
@@ -177,40 +199,25 @@ export default function Client({ user, assistants }: Props) {
 
     window.speechSynthesis.cancel();
 
-    const utterance =
+    const speech =
       new SpeechSynthesisUtterance(text);
 
-    utterance.lang = "id-ID";
-    utterance.rate = 1;
-    utterance.pitch = 1;
+    speech.lang = "id-ID";
+    speech.rate = 1;
+    speech.pitch = 1;
 
-    window.speechSynthesis.speak(
-      utterance
-    );
+    window.speechSynthesis.speak(speech);
   }
 
-  /*
-   * =========================
-   * VOICE INPUT
-   * =========================
-   */
-
-  function toggleVoiceInput() {
+  function startVoiceInput() {
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
-      (window as any)
-        .webkitSpeechRecognition;
+      (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert(
-        "Browser ini belum mendukung voice input."
+      setError(
+        "Browser ini tidak mendukung voice input."
       );
-      return;
-    }
-
-    if (listening) {
-      recognitionRef.current?.stop();
-      setListening(false);
       return;
     }
 
@@ -220,169 +227,26 @@ export default function Client({ user, assistants }: Props) {
     recognition.lang = "id-ID";
     recognition.continuous = false;
     recognition.interimResults = false;
-
-    recognition.onstart = () => {
-      setListening(true);
-    };
-
-    recognition.onend = () => {
-      setListening(false);
-    };
-
-    recognition.onerror = () => {
-      setListening(false);
-    };
 
     recognition.onresult = (
       event: any
     ) => {
-      const transcript =
-        event.results?.[0]?.[0]
-          ?.transcript ?? "";
+      const text =
+        event.results?.[0]?.[0]?.transcript || "";
 
-      setInput(transcript);
+      setInput(text);
     };
 
-    recognitionRef.current =
-      recognition;
+    recognition.onerror = () => {
+      setError("Voice input gagal.");
+    };
 
     recognition.start();
   }
 
-  /*
-   * =========================
-   * CALL / VOICE CONVERSATION
-   * =========================
-   */
-
-  async function startCall() {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition ||
-      (window as any)
-        .webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert(
-        "Browser ini belum mendukung Call."
-      );
-      return;
-    }
-
-    callRef.current = true;
-    setCalling(true);
-
-    const recognition =
-      new SpeechRecognition();
-
-    recognition.lang = "id-ID";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onresult = async (
-      event: any
-    ) => {
-      const transcript =
-        event.results[
-          event.results.length - 1
-        ]?.[0]?.transcript?.trim();
-
-      if (
-        !transcript ||
-        !callRef.current
-      ) {
-        return;
-      }
-
-      try {
-        recognition.stop();
-      } catch {}
-
-      const answer =
-        await sendMessage(transcript);
-
-      if (
-        answer &&
-        callRef.current
-      ) {
-        speak(answer);
-      }
-
-      if (callRef.current) {
-        setTimeout(() => {
-          try {
-            recognition.start();
-          } catch {}
-        }, 500);
-      }
-    };
-
-    recognition.onend = () => {
-      if (
-        callRef.current &&
-        !loading
-      ) {
-        try {
-          recognition.start();
-        } catch {}
-      }
-    };
-
-    recognition.onerror = () => {
-      if (callRef.current) {
-        setTimeout(() => {
-          try {
-            recognition.start();
-          } catch {}
-        }, 700);
-      }
-    };
-
-    recognitionRef.current =
-      recognition;
-
-    try {
-      recognition.start();
-    } catch {}
-  }
-
-  function stopCall() {
-    callRef.current = false;
-
-    setCalling(false);
-
-    try {
-      recognitionRef.current?.stop();
-    } catch {}
-
-    if (
-      typeof window !== "undefined" &&
-      "speechSynthesis" in window
-    ) {
-      window.speechSynthesis.cancel();
-    }
-  }
-
-  function toggleCall() {
-    if (calling) {
-      stopCall();
-    } else {
-      startCall();
-    }
-  }
-
-  /*
-   * =========================
-   * CLEANUP
-   * =========================
-   */
-
   useEffect(() => {
     return () => {
-      callRef.current = false;
-
-      try {
-        recognitionRef.current?.stop();
-      } catch {}
+      abortRef.current?.abort();
 
       if (
         typeof window !== "undefined" &&
@@ -393,35 +257,27 @@ export default function Client({ user, assistants }: Props) {
     };
   }, []);
 
-  /*
-   * =========================
-   * LOGIN SCREEN
-   * =========================
-   */
-
   if (!user) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <section className="glass w-full max-w-lg rounded-3xl p-8 text-center">
-
+      <main className="min-h-screen grid place-items-center p-6">
+        <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center">
           <div className="text-5xl mb-5">
             ✦
           </div>
 
-          <h1 className="text-4xl font-bold">
+          <h1 className="text-3xl font-bold">
             Putra AI
           </h1>
 
-          <p className="mt-3 text-white/60">
+          <p className="mt-3 text-white/50">
             Asisten AI untuk percakapan,
             cerita, dan voice conversation.
           </p>
 
           <div className="mt-7 flex gap-3 justify-center">
-
             <a
               href="/login"
-              className="rounded-xl bg-white text-black px-5 py-3 font-semibold"
+              className="rounded-xl bg-white px-5 py-3 font-semibold text-black"
             >
               Masuk
             </a>
@@ -432,31 +288,18 @@ export default function Client({ user, assistants }: Props) {
             >
               Daftar
             </a>
-
           </div>
-
-        </section>
+        </div>
       </main>
     );
   }
 
-  /*
-   * =========================
-   * MAIN UI
-   * =========================
-   */
-
   return (
-    <main className="min-h-screen flex flex-col">
-
-      {/* HEADER */}
-
-      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#07080b]/90 backdrop-blur-xl">
-
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-
+    <main className="min-h-screen bg-[#07080b] text-white">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#07080b]/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-4">
           <div>
-            <div className="font-bold text-lg">
+            <div className="text-xl font-bold">
               Putra AI
             </div>
 
@@ -466,28 +309,22 @@ export default function Client({ user, assistants }: Props) {
           </div>
 
           <div className="flex items-center gap-2">
-
             {assistants.length > 0 && (
               <select
                 value={assistantId}
                 onChange={(e) =>
-                  setAssistantId(
-                    e.target.value
-                  )
+                  setAssistantId(e.target.value)
                 }
-                className="glass rounded-xl px-3 py-2 text-sm bg-transparent"
+                className="rounded-xl border border-white/10 bg-[#111218] px-3 py-2 text-sm outline-none"
               >
-                {assistants.map(
-                  (assistant) => (
-                    <option
-                      key={assistant.id}
-                      value={assistant.id}
-                      className="bg-[#111218]"
-                    >
-                      {assistant.name}
-                    </option>
-                  )
-                )}
+                {assistants.map((item) => (
+                  <option
+                    key={item.id}
+                    value={item.id}
+                  >
+                    {item.name}
+                  </option>
+                ))}
               </select>
             )}
 
@@ -499,217 +336,151 @@ export default function Client({ user, assistants }: Props) {
                 Admin
               </a>
             )}
-
           </div>
-
         </div>
-
       </header>
 
-      {/* CONTENT */}
-
-      <div className="flex-1 w-full max-w-4xl mx-auto px-4 py-8">
-
-        {selectedAssistant && (
-          <div className="glass rounded-3xl p-5 mb-6">
-
-            <div className="text-xs uppercase tracking-wider text-white/40">
+      <section className="mx-auto max-w-4xl px-4 pb-40 pt-8">
+        {assistant && (
+          <div className="mb-8 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+            <div className="text-xs uppercase tracking-wider text-white/30">
               Assistant
             </div>
 
-            <h2 className="text-2xl font-semibold mt-1">
-              {selectedAssistant.name}
+            <h2 className="mt-1 text-2xl font-semibold">
+              {assistant.name}
             </h2>
 
-            <p className="text-sm text-white/50 mt-1">
-              {selectedAssistant.description ||
+            <p className="mt-1 text-sm text-white/40">
+              {assistant.description ||
                 "Asisten AI Putra."}
             </p>
-
           </div>
         )}
 
-        {/* MESSAGES */}
-
-        <div className="space-y-4 pb-44">
-
-          {messages.length === 0 && (
-            <div className="text-center py-24 text-white/40">
-
-              <div className="text-6xl mb-5">
+        {messages.length === 0 ? (
+          <div className="grid min-h-[55vh] place-items-center text-center">
+            <div>
+              <div className="mb-6 text-7xl text-white/40">
                 ✦
               </div>
 
-              <p className="text-lg">
+              <h1 className="text-2xl font-medium text-white/70">
                 Halo{" "}
                 {user.profile?.nickname ||
                   user.profile?.name ||
-                  "kamu"}
+                  "kamu"}{" "}
                 .
-              </p>
+              </h1>
 
-              <p className="text-sm mt-2">
+              <p className="mt-2 text-white/35">
                 Ada yang bisa Putra bantu?
               </p>
-
             </div>
-          )}
-
-          {messages.map(
-            (message, index) => {
-
-              const isUser =
-                message.role === "user";
-
-              return (
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {messages.map((message, index) => (
+              <div
+                key={index}
+                className={
+                  message.role === "user"
+                    ? "flex justify-end"
+                    : "flex justify-start"
+                }
+              >
                 <div
-                  key={index}
                   className={
-                    isUser
-                      ? "flex justify-end"
-                      : "flex justify-start"
+                    message.role === "user"
+                      ? "max-w-[85%] rounded-3xl bg-white px-5 py-4 text-black"
+                      : "max-w-[85%] rounded-3xl border border-white/10 bg-white/[0.04] px-5 py-4"
                   }
                 >
-
-                  <div
-                    className={
-                      "max-w-[88%] rounded-3xl px-5 py-4 " +
-                      (isUser
-                        ? "bg-white text-black"
-                        : "glass")
-                    }
-                  >
-
-                    <div className="whitespace-pre-wrap leading-7">
-                      {message.content ||
-                        "…"}
-                    </div>
-
-                    {!isUser &&
-                      message.content && (
-                        <button
-                          onClick={() =>
-                            speak(
-                              message.content
-                            )
-                          }
-                          className="mt-3 text-xs text-white/45 hover:text-white"
-                        >
-                          🔊 Dengarkan
-                        </button>
-                      )}
-
+                  <div className="whitespace-pre-wrap leading-7">
+                    {message.content || "…"}
                   </div>
 
+                  {message.role ===
+                    "assistant" &&
+                    message.content && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          speak(message.content)
+                        }
+                        className="mt-3 text-xs text-white/40"
+                      >
+                        🔊 Dengarkan
+                      </button>
+                    )}
                 </div>
-              );
-            }
-          )}
+              </div>
+            ))}
+          </div>
+        )}
 
-          {loading && (
-            <div className="text-xs text-white/30">
-              Putra sedang berpikir...
-            </div>
-          )}
+        {error && (
+          <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+            {error}
+          </div>
+        )}
 
-        </div>
+        {loading && (
+          <div className="mt-5 text-sm text-white/40">
+            Putra sedang menjawab...
+          </div>
+        )}
+      </section>
 
-      </div>
-
-      {/* INPUT */}
-
-      <div className="fixed bottom-0 inset-x-0 z-20 border-t border-white/10 bg-[#07080b]/95 backdrop-blur-xl p-3">
-
-        <div className="max-w-4xl mx-auto">
-
-          <div className="glass rounded-3xl p-2 flex items-end gap-2">
-
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#07080b]/95 p-3 backdrop-blur-xl">
+        <div className="mx-auto max-w-4xl">
+          <div className="flex items-end gap-2 rounded-3xl border border-white/10 bg-white/[0.04] p-2">
             <textarea
               value={input}
               onChange={(e) =>
                 setInput(e.target.value)
               }
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  !e.shiftKey
-                ) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
-              placeholder={
-                calling
-                  ? "Call aktif — bicara..."
-                  : "Tulis pesan untuk Putra..."
-              }
+              onKeyDown={handleKeyDown}
+              placeholder="Tulis pesan untuk Putra..."
               rows={1}
-              className="flex-1 resize-none bg-transparent outline-none px-3 py-3 min-h-12"
+              disabled={loading}
+              className="min-h-12 flex-1 resize-none bg-transparent px-3 py-3 outline-none"
             />
 
-            {/* VOICE INPUT */}
-
             <button
-              onClick={
-                toggleVoiceInput
-              }
-              title="Voice input"
-              className={
-                "rounded-2xl px-4 py-3 " +
-                (listening
-                  ? "bg-white text-black"
-                  : "border border-white/10")
-              }
+              type="button"
+              onClick={startVoiceInput}
+              disabled={loading}
+              className="rounded-2xl border border-white/10 px-4 py-3 disabled:opacity-40"
             >
               🎙
             </button>
 
-            {/* CALL */}
-
-            <button
-              onClick={toggleCall}
-              title={
-                calling
-                  ? "Hentikan Call"
-                  : "Mulai Call"
-              }
-              className={
-                "rounded-2xl px-4 py-3 " +
-                (calling
-                  ? "bg-red-500 text-white"
-                  : "border border-white/10")
-              }
-            >
-              {calling ? "■" : "☎"}
-            </button>
-
-            {/* SEND */}
-
-            <button
-              disabled={
-                loading ||
-                !input.trim()
-              }
-              onClick={() =>
-                sendMessage()
-              }
-              className="rounded-2xl bg-white text-black px-5 py-3 font-semibold disabled:opacity-30"
-            >
-              Kirim
-            </button>
-
+            {loading ? (
+              <button
+                type="button"
+                onClick={stopGeneration}
+                className="rounded-2xl bg-red-500 px-5 py-3 font-semibold"
+              >
+                ■
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={sendMessage}
+                disabled={!input.trim()}
+                className="rounded-2xl bg-white px-5 py-3 font-semibold text-black disabled:opacity-30"
+              >
+                Kirim
+              </button>
+            )}
           </div>
 
-          <div className="text-center text-[11px] text-white/25 mt-2">
-            {calling
-              ? "Call aktif • bicara dengan Putra melalui mikrofon"
-              : "Putra AI • Chat • Voice • Call"}
+          <div className="py-2 text-center text-[11px] text-white/20">
+            Putra AI
           </div>
-
         </div>
-
       </div>
-
     </main>
   );
 }
