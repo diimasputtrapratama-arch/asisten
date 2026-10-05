@@ -1,0 +1,11 @@
+model Provider {
+  id String @id @default(cuid())
+  name String @unique
+  type String
+  enabled Boolean @default(true)
+  baseUrl String?
+  defaultModel String?
+  createdAt DateTime @default(now())
+  assistants Assistant[]
+  modelConfigs ModelConfig[]
+}
