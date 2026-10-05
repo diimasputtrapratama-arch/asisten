@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
-import { providerStream, normalizeStream } from "@/lib/ai";
+import {
+  providerStream,
+  normalizeStream,
+} from "@/lib/ai";
 
 export const runtime = "nodejs";
 
@@ -18,36 +21,54 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const assistant = await db.assistant.findUnique({
-      where: {
-        id: body.assistantId,
-      },
-      include: {
-        provider: {
-          include: {
-            models: {
-              where: {
-                enabled: true,
-              },
-              orderBy: {
-                priority: "asc",
-              },
-            },
-          },
+    const assistantId = body?.assistantId;
+
+    const messages = Array.isArray(body?.messages)
+      ? body.messages
+      : [];
+
+    if (!assistantId) {
+      return NextResponse.json(
+        { error: "Assistant ID tidak ditemukan." },
+        { status: 400 }
+      );
+    }
+
+    if (messages.length === 0) {
+      return NextResponse.json(
+        { error: "Pesan kosong." },
+        { status: 400 }
+      );
+    }
+
+    const assistant =
+      await db.assistant.findUnique({
+        where: {
+          id: assistantId,
         },
-      },
-    });
+      });
 
     if (!assistant || !assistant.enabled) {
       return NextResponse.json(
-        { error: "Assistant tidak tersedia" },
+        {
+          error:
+            "Assistant tidak tersedia.",
+        },
         { status: 404 }
       );
     }
 
-    const messages = Array.isArray(body.messages)
-      ? body.messages
-      : [];
+    /*
+     * =====================================================
+     * PUTRA AI
+     * Untuk sementara model Gemini DIPAKSA di sini.
+     * Tidak mengambil model lama dari database.
+     * =====================================================
+     */
+
+    const provider = "gemini";
+
+    const model = "gemini-3.8-flash";
 
     const system = [
       assistant.systemPrompt,
@@ -69,22 +90,29 @@ export async function POST(req: Request) {
       user.profile?.communicationStyle
         ? `Gaya komunikasi pengguna: ${user.profile.communicationStyle}`
         : "",
+
+      `
+Kamu adalah Putra AI.
+
+Jawablah secara natural, jelas, membantu,
+dan gunakan bahasa Indonesia kecuali pengguna
+meminta bahasa lain.
+
+Jangan mengatakan bahwa kamu adalah sistem,
+database, API, atau program kecuali memang
+sedang membahas hal teknis tersebut.
+      `,
     ]
       .filter(Boolean)
       .join("\n");
 
-    let provider =
-      assistant.provider?.type || "gemini";
-
-    if (provider === "google") {
-      provider = "gemini";
-    }
-
-    const model =
-      assistant.provider?.models?.[0]?.model ||
-      (provider === "gemini"
-        ? "gemini-2.5-flash"
-        : "llama-3.3-70b-versatile");
+    console.log("PUTRA CHAT:", {
+      assistantId,
+      assistant: assistant.name,
+      provider,
+      model,
+      messageCount: messages.length,
+    });
 
     const result = await providerStream(
       provider,
@@ -95,30 +123,41 @@ export async function POST(req: Request) {
 
     if (!result?.body) {
       throw new Error(
-        "AI tidak mengembalikan response."
+        "Gemini tidak mengembalikan response."
       );
     }
 
-    return new Response(
-      normalizeStream(provider, result.body),
-      {
-        headers: {
-          "Content-Type":
-            "text/plain; charset=utf-8",
-          "Cache-Control": "no-cache",
-          "X-Accel-Buffering": "no",
-        },
-      }
+    const stream = normalizeStream(
+      provider,
+      result.body
     );
+
+    return new Response(stream, {
+      status: 200,
+
+      headers: {
+        "Content-Type":
+          "text/plain; charset=utf-8",
+
+        "Cache-Control":
+          "no-cache, no-transform",
+
+        "X-Accel-Buffering":
+          "no",
+      },
+    });
   } catch (error) {
-    console.error("CHAT_API_ERROR", error);
+    console.error(
+      "CHAT_API_ERROR:",
+      error
+    );
 
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : "Terjadi kesalahan pada AI",
+            : "Terjadi kesalahan pada Putra AI.",
       },
       {
         status: 500,
