@@ -7,20 +7,20 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const u = await currentUser();
+    const user = await currentUser();
 
-    if (!u) {
+    if (!user) {
       return NextResponse.json(
         { error: "LOGIN_REQUIRED" },
         { status: 401 }
       );
     }
 
-    const b = await req.json();
+    const body = await req.json();
 
     const assistant = await db.assistant.findUnique({
       where: {
-        id: b.assistantId,
+        id: body.assistantId,
       },
       include: {
         provider: {
@@ -45,24 +45,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const messages = Array.isArray(b.messages)
-      ? b.messages
+    const messages = Array.isArray(body.messages)
+      ? body.messages
       : [];
 
     const system = [
       assistant.systemPrompt,
-      u.profile?.name
-        ? `Nama pengguna: ${u.profile.name}`
+
+      user.profile?.name
+        ? `Nama pengguna: ${user.profile.name}`
         : "",
-      u.profile?.nickname
-        ? `Panggilan pengguna: ${u.profile.nickname}`
+
+      user.profile?.nickname
+        ? `Panggilan pengguna: ${user.profile.nickname}`
         : "",
+
       `Nama asisten: ${assistant.name}`,
-      u.profile?.language
-        ? `Bahasa pengguna: ${u.profile.language}`
+
+      user.profile?.language
+        ? `Bahasa pengguna: ${user.profile.language}`
         : "",
-      u.profile?.communicationStyle
-        ? `Gaya komunikasi pengguna: ${u.profile.communicationStyle}`
+
+      user.profile?.communicationStyle
+        ? `Gaya komunikasi pengguna: ${user.profile.communicationStyle}`
         : "",
     ]
       .filter(Boolean)
@@ -76,10 +81,10 @@ export async function POST(req: Request) {
     }
 
     const model =
-  assistant.provider?.models?.[0]?.model ||
-  (provider === "gemini"
-    ? "gemini-2.5-flash"
-    : "llama-3.3-70b-versatile");
+      assistant.provider?.models?.[0]?.model ||
+      (provider === "gemini"
+        ? "gemini-2.5-flash"
+        : "llama-3.3-70b-versatile");
 
     const result = await providerStream(
       provider,
@@ -89,9 +94,8 @@ export async function POST(req: Request) {
     );
 
     if (!result?.body) {
-      return NextResponse.json(
-        { error: "AI tidak mengembalikan response" },
-        { status: 502 }
+      throw new Error(
+        "AI tidak mengembalikan response."
       );
     }
 
@@ -111,7 +115,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        error: "Terjadi kesalahan pada AI",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Terjadi kesalahan pada AI",
       },
       {
         status: 500,
