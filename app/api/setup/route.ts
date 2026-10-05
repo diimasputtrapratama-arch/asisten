@@ -115,7 +115,7 @@ export async function GET(req: Request) {
         providerId: groq.id,
         name: "Groq Llama",
         model:
-          "llama-3.3-70b-versatile",
+          "openai/gpt-oss-120b",
         enabled: true,
         priority: 0,
       },
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
         providerId: groq.id,
         name: "Groq Llama",
         model:
-          "llama-3.3-70b-versatile",
+          "openai/gpt-oss-120b",
         enabled: true,
         priority: 0,
       },
@@ -243,7 +243,7 @@ export async function GET(req: Request) {
           "gemini-3.8-flash",
 
         groq:
-          "llama-3.3-70b-versatile",
+          "openai/gpt-oss-120b",
       },
     });
   } catch (error) {
