@@ -1,4 +1,3 @@
-import type {ChatMessage} from "./types";
 export type ChatMessage={role:"user"|"assistant"|"system";content:string};
 async function gemini(messages:ChatMessage[],model:string,system:string){
  const key=process.env.GEMINI_API_KEY;if(!key)throw new Error("GEMINI_API_KEY belum diset");
