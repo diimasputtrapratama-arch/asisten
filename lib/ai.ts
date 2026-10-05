@@ -80,9 +80,9 @@ async function gemini(
 
       contents,
 
-      generationConfig: 
-        maxOutputTokens: 2048,
-      },
+      generationConfig: {
+  maxOutputTokens: 2048,
+},
     }),
   });
 
