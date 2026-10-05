@@ -26,175 +26,211 @@ enum StoryStatus {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  passwordHash  String
-  role          Role           @default(USER)
-  disabled      Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id           String         @id @default(cuid())
+  email        String         @unique
+  passwordHash String
+  role         Role           @default(USER)
+  disabled     Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
-  profile       Profile?
-  sessions      Session[]
-  conversations Conversation[]
-  memories      Memory[]
-  storySessions StorySession[]
+  profile        Profile?
+  sessions       Session[]
+  conversations  Conversation[]
+  memories       Memory[]
+  storySessions  StorySession[]
 }
 
 model Profile {
-  id                  String   @id @default(cuid())
-  userId              String   @unique
-  name                String?
-  nickname            String?
-  dateOfBirth         DateTime?
-  assistantName       String   @default("Putra")
-  language            String   @default("id")
-  communicationStyle  String?
-  favoriteGenres      String?
-  voiceId             String?
+  id                 String   @id @default(cuid())
+  userId             String   @unique
 
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  voice               Voice?   @relation(fields: [voiceId], references: [id], onDelete: SetNull)
+  name               String?
+  nickname           String?
+  dateOfBirth        DateTime?
+  age                Int?
+  preferredAssistant String?
+  language           String   @default("id")
+  communicationStyle String?
+  favoriteGenres     String?
+  storyPreferences   String?
+
+  voiceId            String?
+  voice              Voice?   @relation(fields: [voiceId], references: [id], onDelete: SetNull)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Session {
-  id         String   @id @default(cuid())
-  tokenHash  String   @unique
-  userId     String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Provider {
-  id            String         @id @default(cuid())
-  name          String         @unique
-  type          String
-  enabled       Boolean        @default(true)
-  baseUrl       String?
-  defaultModel  String?
-  createdAt     DateTime       @default(now())
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        String
+  enabled     Boolean  @default(true)
+  apiKeyEnv   String?
+  baseUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  assistants    Assistant[]
-  modelConfigs  ModelConfig[]
+  models    ModelConfig[]
+  assistants Assistant[]
 }
 
 model ModelConfig {
-  id            String   @id @default(cuid())
-  providerId    String
-  name          String
-  modelId       String
-  enabled       Boolean  @default(true)
-  contextWindow Int      @default(32768)
-  inputCost     String?
-  outputCost    String?
-
-  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-}
-
-model Voice {
-  id          String      @id @default(cuid())
-  name        String
-  provider    String
-  externalId  String?
-  language    String      @default("id")
-  enabled     Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-
-  assistants  Assistant[]
-  profiles    Profile[]
-}
-
-model Assistant {
-  id              String        @id @default(cuid())
-  name            String
-  slug            String        @unique
-  description     String
-  systemPrompt    String
-  providerId      String?
-  modelName       String
-  voiceId         String?
-  temperature     Float         @default(0.7)
-  enableWeb       Boolean       @default(true)
-  enableStory     Boolean       @default(true)
-  enableMemory    Boolean       @default(true)
-  enabled         Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  provider        Provider?     @relation(fields: [providerId], references: [id], onDelete: SetNull)
-  voice           Voice?        @relation(fields: [voiceId], references: [id], onDelete: SetNull)
-  conversations   Conversation[]
-}
-
-model Conversation {
-  id          String       @id @default(cuid())
-  title       String       @default("Percakapan baru")
-  userId      String
-  assistantId String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assistant   Assistant    @relation(fields: [assistantId], references: [id], onDelete: Restrict)
-  messages    Message[]
-}
-
-model Message {
-  id             String       @id @default(cuid())
-  conversationId String
-  role           ConversationRole
-  content        String
-  createdAt      DateTime     @default(now())
-
-  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-}
-
-model Memory {
   id         String   @id @default(cuid())
-  userId     String
-  key        String
-  value      String
+  providerId String
+  name       String
+  model      String
+  enabled    Boolean  @default(true)
+  priority   Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId])
+}
+
+model Voice {
+  id          String   @id @default(cuid())
+  name        String
+  provider    String
+  voiceId     String?
+  language    String   @default("id-ID")
+  description String?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  profiles   Profile[]
+  assistants Assistant[]
+}
+
+model Assistant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  systemPrompt String
+  avatar      String?
+  enabled     Boolean  @default(true)
+
+  providerId String?
+  voiceId    String?
+
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  voice    Voice?    @relation(fields: [voiceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  conversations Conversation[]
+  storySessions StorySession[]
+}
+
+model Conversation {
+  id          String   @id @default(cuid())
+  userId      String
+  assistantId String?
+  title       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assistant Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  messages  Message[]
+
+  @@index([userId])
+  @@index([assistantId])
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  role           ConversationRole
+  content        String
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+model Memory {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     String
+  importance Float    @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, key])
 }
 
 model Story {
-  id          String         @id @default(cuid())
-  title       String
-  summary     String
-  content     String
-  genre       String
-  sourceUrl   String?
-  published   Boolean        @default(false)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-
-  sessions    StorySession[]
-}
-
-model StorySession {
   id          String      @id @default(cuid())
-  userId      String
-  storyId     String
+  title       String
+  description String?
+  genre       String?
+  content     String?
   status      StoryStatus @default(DRAFT)
-  position    Int         @default(0)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  story       Story       @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  sessions StorySession[]
+}
+
+model StorySession {
+  id          String   @id @default(cuid())
+  userId      String
+  storyId     String
+  assistantId String?
+  currentStep Int      @default(0)
+  context     Json?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  story     Story      @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  assistant Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([storyId])
+  @@index([assistantId])
 }
 
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String?
-  action      String
-  entity      String
-  entityId    String?
-  metadata    String?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
 }
