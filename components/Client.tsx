@@ -38,28 +38,17 @@ export default function Client({
   user,
   assistants,
 }: Props) {
-  /* =====================================================
-     BASIC STATE
-  ===================================================== */
-
   const [assistantId, setAssistantId] = useState(
     assistants[0]?.id ?? ""
   );
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [voiceState, setVoiceState] =
     useState<VoiceState>("idle");
-
   const [autoSpeak, setAutoSpeak] = useState(true);
-
-  /* =====================================================
-     REFS
-  ===================================================== */
 
   const abortRef =
     useRef<AbortController | null>(null);
@@ -69,10 +58,6 @@ export default function Client({
 
   const mountedRef =
     useRef(true);
-
-  /* =====================================================
-     ASSISTANT
-  ===================================================== */
 
   const assistant =
     assistants.find(
@@ -91,20 +76,14 @@ export default function Client({
       messageText ?? input
     ).trim();
 
-    if (!text) {
-      return;
-    }
+    if (!text) return;
 
     if (!assistantId) {
-      setError(
-        "Assistant belum tersedia."
-      );
+      setError("Assistant belum tersedia.");
       return;
     }
 
-    if (loading) {
-      return;
-    }
+    if (loading) return;
 
     setError("");
 
@@ -136,32 +115,21 @@ export default function Client({
     abortRef.current = controller;
 
     try {
-      /* =============================================
-         API REQUEST
-      ============================================= */
-
       const response =
         await fetch("/api/chat", {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
           },
-
           signal:
             controller.signal,
-
           body: JSON.stringify({
             assistantId,
             messages:
               conversation,
           }),
         });
-
-      /* =============================================
-         READ JSON
-      ============================================= */
 
       const data =
         await response.json();
@@ -175,8 +143,7 @@ export default function Client({
 
       if (
         !data?.message ||
-        typeof data.message !==
-          "string"
+        typeof data.message !== "string"
       ) {
         throw new Error(
           "Putra tidak mengirim jawaban."
@@ -192,10 +159,6 @@ export default function Client({
         );
       }
 
-      /* =============================================
-         UPDATE ASSISTANT MESSAGE
-      ============================================= */
-
       setMessages([
         ...conversation,
         {
@@ -203,10 +166,6 @@ export default function Client({
           content: answer,
         },
       ]);
-
-      /* =============================================
-         VOICE RESPONSE
-      ============================================= */
 
       if (
         speakResponse ||
@@ -257,7 +216,7 @@ export default function Client({
   }
 
   /* =====================================================
-     STOP GENERATION
+     STOP
   ===================================================== */
 
   function stopGeneration() {
@@ -266,8 +225,7 @@ export default function Client({
     abortRef.current = null;
 
     if (
-      typeof window !==
-      "undefined"
+      typeof window !== "undefined"
     ) {
       window.speechSynthesis?.cancel();
     }
@@ -286,8 +244,7 @@ export default function Client({
 
   function speak(text: string) {
     if (
-      typeof window ===
-      "undefined"
+      typeof window === "undefined"
     ) {
       return;
     }
@@ -312,20 +269,11 @@ export default function Client({
 
     speech.onstart = () => {
       if (mountedRef.current) {
-        setVoiceState(
-          "speaking"
-        );
+        setVoiceState("speaking");
       }
     };
 
     speech.onend = () => {
-      /*
-       * Putra selesai berbicara.
-       *
-       * Jangan memulai microphone
-       * secara otomatis.
-       */
-
       if (mountedRef.current) {
         setVoiceState("idle");
       }
@@ -347,22 +295,14 @@ export default function Client({
   ===================================================== */
 
   function startVoiceInput() {
-    /*
-     * Kalau sedang memproses request,
-     * jangan mulai microphone baru.
-     */
-
     if (loading) {
       return;
     }
 
-    /* =============================================
-       STOP SPEAKING
-    ============================================= */
+    /* STOP SPEAKING */
 
     if (
-      voiceState ===
-      "speaking"
+      voiceState === "speaking"
     ) {
       window.speechSynthesis?.cancel();
 
@@ -371,31 +311,24 @@ export default function Client({
       return;
     }
 
-    /* =============================================
-       STOP LISTENING
-    ============================================= */
+    /* STOP LISTENING */
 
     if (
-      voiceState ===
-      "listening"
+      voiceState === "listening"
     ) {
       recognitionRef.current?.stop();
 
-      recognitionRef.current =
-        null;
+      recognitionRef.current = null;
 
       setVoiceState("idle");
 
       return;
     }
 
-    /* =============================================
-       GET SPEECH RECOGNITION
-    ============================================= */
+    /* SPEECH RECOGNITION */
 
     const SpeechRecognition =
-      typeof window !==
-      "undefined"
+      typeof window !== "undefined"
         ? (window as any)
             .SpeechRecognition ||
           (window as any)
@@ -412,42 +345,23 @@ export default function Client({
 
     setError("");
 
-    /* =============================================
-       CREATE RECOGNITION
-    ============================================= */
-
     const recognition =
       new SpeechRecognition();
 
     recognitionRef.current =
       recognition;
 
-    /*
-     * SATU KALI DENGAR.
-     *
-     * Tidak continuous.
-     * Tidak ada auto restart.
-     */
+    recognition.lang = "id-ID";
 
-    recognition.lang =
-      "id-ID";
+    recognition.continuous = false;
 
-    recognition.continuous =
-      false;
+    recognition.interimResults = false;
 
-    recognition.interimResults =
-      false;
+    recognition.maxAlternatives = 1;
 
-    recognition.maxAlternatives =
-      1;
+    setVoiceState("listening");
 
-    setVoiceState(
-      "listening"
-    );
-
-    /* =============================================
-       RESULT
-    ============================================= */
+    /* RESULT */
 
     recognition.onresult = (
       event: any
@@ -457,8 +371,7 @@ export default function Client({
           ?.transcript
           ?.trim() || "";
 
-      recognitionRef.current =
-        null;
+      recognitionRef.current = null;
 
       if (!text) {
         setVoiceState("idle");
@@ -470,18 +383,7 @@ export default function Client({
         return;
       }
 
-      /*
-       * Tampilkan hasil suara
-       */
-
       setInput(text);
-
-      /*
-       * Langsung kirim ke Putra.
-       *
-       * speakResponse = true
-       * agar jawaban Putra dibacakan.
-       */
 
       sendMessage(
         text,
@@ -489,9 +391,7 @@ export default function Client({
       );
     };
 
-    /* =============================================
-       ERROR
-    ============================================= */
+    /* ERROR */
 
     recognition.onerror = (
       event: any
@@ -501,15 +401,9 @@ export default function Client({
         event
       );
 
-      recognitionRef.current =
-        null;
+      recognitionRef.current = null;
 
       setVoiceState("idle");
-
-      /*
-       * Jangan tampilkan error
-       * ketika user sengaja membatalkan.
-       */
 
       if (
         event?.error !==
@@ -521,28 +415,19 @@ export default function Client({
       }
     };
 
-    /* =============================================
-       END
-    ============================================= */
+    /* END
+       IMPORTANT:
+       Tidak ada pengecekan voiceState.
+       Tidak ada restart microphone.
+    */
 
     recognition.onend = () => {
-      /*
-       * Recognition selesai.
-       *
-       * Jangan restart microphone.
-       * Setelah selesai mendengar,
-       * kembali ke IDLE.
-       */
-
-      recognitionRef.current =
-        null;
+      recognitionRef.current = null;
 
       setVoiceState("idle");
     };
 
-    /* =============================================
-       START
-    ============================================= */
+    /* START */
 
     try {
       recognition.start();
@@ -552,8 +437,7 @@ export default function Client({
         err
       );
 
-      recognitionRef.current =
-        null;
+      recognitionRef.current = null;
 
       setVoiceState("idle");
     }
@@ -581,23 +465,19 @@ export default function Client({
   ===================================================== */
 
   useEffect(() => {
-    mountedRef.current =
-      true;
+    mountedRef.current = true;
 
     return () => {
-      mountedRef.current =
-        false;
+      mountedRef.current = false;
 
       abortRef.current?.abort();
 
       recognitionRef.current?.abort();
 
-      recognitionRef.current =
-        null;
+      recognitionRef.current = null;
 
       if (
-        typeof window !==
-        "undefined"
+        typeof window !== "undefined"
       ) {
         window.speechSynthesis?.cancel();
       }
@@ -643,21 +523,20 @@ export default function Client({
             </a>
 
           </div>
+
         </div>
       </main>
     );
   }
 
   /* =====================================================
-     MAIN UI
+     MAIN
   ===================================================== */
 
   return (
     <main className="min-h-screen bg-[#07080b] text-white">
 
-      {/* ===============================================
-          HEADER
-      =============================================== */}
+      {/* HEADER */}
 
       <header className="sticky top-0 z-30 border-b border-white/10 bg-[#07080b]/95 backdrop-blur-xl">
 
@@ -679,9 +558,7 @@ export default function Client({
 
             {assistants.length > 0 && (
               <select
-                value={
-                  assistantId
-                }
+                value={assistantId}
                 onChange={(e) =>
                   setAssistantId(
                     e.target.value
@@ -689,27 +566,20 @@ export default function Client({
                 }
                 className="rounded-xl border border-white/10 bg-[#111218] px-3 py-2 text-sm outline-none"
               >
-
                 {assistants.map(
                   (item) => (
                     <option
-                      key={
-                        item.id
-                      }
-                      value={
-                        item.id
-                      }
+                      key={item.id}
+                      value={item.id}
                     >
                       {item.name}
                     </option>
                   )
                 )}
-
               </select>
             )}
 
-            {user.role ===
-              "ADMIN" && (
+            {user.role === "ADMIN" && (
               <a
                 href="/admin"
                 className="rounded-xl border border-white/10 px-3 py-2 text-sm"
@@ -724,9 +594,7 @@ export default function Client({
 
       </header>
 
-      {/* ===============================================
-          CHAT AREA
-      =============================================== */}
+      {/* CHAT */}
 
       <section className="mx-auto max-w-4xl px-4 pb-40 pt-8">
 
@@ -749,8 +617,7 @@ export default function Client({
           </div>
         )}
 
-        {messages.length ===
-        0 ? (
+        {messages.length === 0 ? (
 
           <div className="grid min-h-[55vh] place-items-center text-center">
 
@@ -764,13 +631,9 @@ export default function Client({
 
                 Halo{" "}
 
-                {user.profile
-                  ?.nickname ||
-                  user.profile
-                    ?.name ||
-                  "kamu"}
-
-                .
+                {user.profile?.nickname ||
+                  user.profile?.name ||
+                  "kamu"}.
 
               </h1>
 
@@ -847,21 +710,15 @@ export default function Client({
 
         )}
 
-        {/* =============================================
-            ERROR
-        ============================================= */}
+        {/* ERROR */}
 
         {error && (
           <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
-
             {error}
-
           </div>
         )}
 
-        {/* =============================================
-            STATUS
-        ============================================= */}
+        {/* LOADING */}
 
         {loading && (
           <div className="mt-5 flex items-center gap-2 text-sm text-white/40">
@@ -875,29 +732,25 @@ export default function Client({
           </div>
         )}
 
-        {voiceState ===
-          "listening" && (
+        {/* LISTENING */}
+
+        {voiceState === "listening" && (
           <div className="mt-5 text-center text-sm text-white/40">
-
             🎙️ Putra sedang mendengarkan...
-
           </div>
         )}
 
-        {voiceState ===
-          "speaking" && (
+        {/* SPEAKING */}
+
+        {voiceState === "speaking" && (
           <div className="mt-5 text-center text-sm text-white/40">
-
             🔊 Putra sedang berbicara...
-
           </div>
         )}
 
       </section>
 
-      {/* ===============================================
-          INPUT BAR
-      =============================================== */}
+      {/* INPUT BAR */}
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#07080b]/95 p-3 backdrop-blur-xl">
 
@@ -925,9 +778,7 @@ export default function Client({
               className="min-h-12 flex-1 resize-none bg-transparent px-3 py-3 outline-none"
             />
 
-            {/* =========================================
-                MICROPHONE
-            ========================================= */}
+            {/* MICROPHONE */}
 
             <button
               type="button"
@@ -958,7 +809,6 @@ export default function Client({
                     : "Bicara dengan Putra"
               }
             >
-
               {voiceState ===
               "listening"
                 ? "■"
@@ -966,12 +816,9 @@ export default function Client({
                     "speaking"
                   ? "🔊"
                   : "🎙️"}
-
             </button>
 
-            {/* =========================================
-                SEND / STOP
-            ========================================= */}
+            {/* SEND / STOP */}
 
             {loading ? (
 
@@ -1004,9 +851,7 @@ export default function Client({
 
           </div>
 
-          {/* =========================================
-              FOOTER CONTROLS
-          ========================================= */}
+          {/* FOOTER */}
 
           <div className="flex items-center justify-center gap-3 py-2 text-[11px] text-white/20">
 
@@ -1024,11 +869,9 @@ export default function Client({
               }
               className="hover:text-white/50"
             >
-
               {autoSpeak
                 ? "🔊 Suara ON"
                 : "🔇 Suara OFF"}
-
             </button>
 
           </div>
