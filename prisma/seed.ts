@@ -53,7 +53,7 @@ async function main() {
       id: "gemini-flash-primary",
       providerId: google.id,
       name: "Gemini Flash",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.8-flash",
       enabled: true,
       priority: 0,
     },
