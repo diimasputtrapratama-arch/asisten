@@ -3,11 +3,12 @@ export type ChatMessage = {
   content: string;
 };
 
-type ProviderResponse = {
-  body: ReadableStream<Uint8Array> | null;
+export type ProviderResponse = {
+  body: ReadableStream<Uint8Array>;
+  provider: "gemini" | "groq";
 };
 
-function getApiKey(provider: string) {
+function getApiKey(provider: "gemini" | "groq") {
   if (provider === "gemini") {
     const key = process.env.GEMINI_API_KEY;
 
@@ -18,17 +19,13 @@ function getApiKey(provider: string) {
     return key;
   }
 
-  if (provider === "groq") {
-    const key = process.env.GROQ_API_KEY;
+  const key = process.env.GROQ_API_KEY;
 
-    if (!key) {
-      throw new Error("GROQ_API_KEY belum diset");
-    }
-
-    return key;
+  if (!key) {
+    throw new Error("GROQ_API_KEY belum diset");
   }
 
-  throw new Error(`Provider tidak didukung: ${provider}`);
+  return key;
 }
 
 /* =====================================================
@@ -37,7 +34,6 @@ function getApiKey(provider: string) {
 
 async function gemini(
   messages: ChatMessage[],
-  model: string,
   system: string
 ): Promise<ProviderResponse> {
   const apiKey = getApiKey("gemini");
@@ -60,6 +56,8 @@ async function gemini(
   if (contents.length === 0) {
     throw new Error("Pesan kosong.");
   }
+
+  const model = "gemini-3.8-flash";
 
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
@@ -119,6 +117,7 @@ async function gemini(
 
   return {
     body: response.body,
+    provider: "gemini",
   };
 }
 
@@ -128,10 +127,11 @@ async function gemini(
 
 async function groq(
   messages: ChatMessage[],
-  model: string,
   system: string
 ): Promise<ProviderResponse> {
   const apiKey = getApiKey("groq");
+
+  const model = "openai/gpt-oss-120b";
 
   const response = await fetch(
     "https://api.groq.com/openai/v1/chat/completions",
@@ -161,7 +161,9 @@ async function groq(
         ],
 
         temperature: 0.7,
+
         max_tokens: 2048,
+
         stream: true,
       }),
     }
@@ -194,25 +196,23 @@ async function groq(
 
   return {
     body: response.body,
+    provider: "groq",
   };
 }
 
 /* =====================================================
-   PRIMARY + FALLBACK
+   PROVIDER + FALLBACK
 ===================================================== */
 
 export async function providerStream(
   provider: string,
   messages: ChatMessage[],
-  model: string,
+  _model: string,
   system: string
 ): Promise<ProviderResponse> {
   const normalized =
     provider.toLowerCase();
 
-  /*
-   * GEMINI PRIMARY
-   */
   if (
     normalized === "gemini" ||
     normalized === "google"
@@ -220,7 +220,6 @@ export async function providerStream(
     try {
       return await gemini(
         messages,
-        "gemini-3.8-flash",
         system
       );
     } catch (error) {
@@ -234,25 +233,21 @@ export async function providerStream(
         message
       );
 
-      /*
-       * Kalau Gemini overload,
-       * rate limit, atau server error,
-       * otomatis pindah ke Groq.
-       */
-      if (
+      const shouldFallback =
         message.includes("HTTP 429") ||
-        message.includes("HTTP 503") ||
         message.includes("HTTP 500") ||
+        message.includes("HTTP 503") ||
         message.includes("high demand") ||
-        message.includes("overload")
-      ) {
+        message.includes("overload") ||
+        message.includes("temporarily");
+
+      if (shouldFallback) {
         console.log(
-          "FALLBACK → GROQ"
+          "PUTRA: GEMINI FAILED → FALLBACK TO GROQ"
         );
 
         return await groq(
           messages,
-          "openai/gpt-oss-120b",
           system
         );
       }
@@ -261,13 +256,9 @@ export async function providerStream(
     }
   }
 
-  /*
-   * GROQ
-   */
   if (normalized === "groq") {
     return await groq(
       messages,
-      "openai/gpt-oss-120b",
       system
     );
   }
@@ -282,7 +273,7 @@ export async function providerStream(
 ===================================================== */
 
 export function normalizeStream(
-  provider: string,
+  provider: "gemini" | "groq",
   body: ReadableStream<Uint8Array>
 ) {
   const reader = body.getReader();
@@ -307,6 +298,7 @@ export function normalizeStream(
           }
 
           controller.close();
+
           return;
         }
 
@@ -318,7 +310,7 @@ export function normalizeStream(
         );
 
         const lines =
-          buffer.split("\n");
+          buffer.split(/\r?\n/);
 
         buffer =
           lines.pop() ?? "";
@@ -336,18 +328,20 @@ export function normalizeStream(
     },
 
     async cancel() {
-      await reader.cancel();
+      try {
+        await reader.cancel();
+      } catch {}
     },
   });
 }
 
 function processBuffer(
-  provider: string,
+  provider: "gemini" | "groq",
   buffer: string,
   controller: ReadableStreamDefaultController<Uint8Array>
 ) {
   const lines =
-    buffer.split("\n");
+    buffer.split(/\r?\n/);
 
   for (const line of lines) {
     processLine(
@@ -359,21 +353,22 @@ function processBuffer(
 }
 
 function processLine(
-  provider: string,
+  provider: "gemini" | "groq",
   line: string,
   controller: ReadableStreamDefaultController<Uint8Array>
 ) {
   const trimmed =
     line.trim();
 
-  if (!trimmed) return;
+  if (!trimmed) {
+    return;
+  }
 
   let data = trimmed;
 
   if (data.startsWith("data:")) {
-    data = data
-      .slice(5)
-      .trim();
+    data =
+      data.slice(5).trim();
   }
 
   if (
@@ -389,13 +384,11 @@ function processLine(
 
     let text = "";
 
-    /*
-     * GEMINI
-     */
-    if (
-      provider === "gemini" ||
-      provider === "google"
-    ) {
+    /* -----------------------------
+       GEMINI
+    ----------------------------- */
+
+    if (provider === "gemini") {
       text =
         json
           ?.candidates?.[0]
@@ -411,9 +404,10 @@ function processLine(
           .join("") || "";
     }
 
-    /*
-     * GROQ
-     */
+    /* -----------------------------
+       GROQ
+    ----------------------------- */
+
     if (provider === "groq") {
       text =
         json
@@ -423,12 +417,10 @@ function processLine(
 
     if (text) {
       controller.enqueue(
-        new TextEncoder().encode(
-          text
-        )
+        new TextEncoder().encode(text)
       );
     }
   } catch {
-    // Abaikan SSE yang tidak valid.
+    // Abaikan data SSE yang belum lengkap/tidak valid.
   }
 }
