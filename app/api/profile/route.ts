@@ -31,15 +31,15 @@ export async function PUT(req:Request) {
 
   const p = await db.profile.update({
     where:{userId:u.id},
-    data:{
-      name:b.name,
-      nickname:b.nickname,
-      assistantName:b.assistantName,
-      language:b.language,
-      communicationStyle:b.communicationStyle,
-      favoriteGenres:b.favoriteGenres,
-      voiceId:b.voiceId
-    }
+    data: {
+  name: b.name,
+  nickname: b.nickname,
+  preferredAssistant: b.assistantName,
+  language: b.language,
+  communicationStyle: b.communicationStyle,
+  favoriteGenres: b.favoriteGenres,
+  storyPreferences: b.storyPreferences,
+}
   });
 
   return NextResponse.json({
