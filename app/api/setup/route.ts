@@ -6,141 +6,265 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const key = url.searchParams.get("key");
 
-    if (key !== process.env.SETUP_KEY) {
+    const key =
+      url.searchParams.get("key");
+
+    if (
+      key !== process.env.SETUP_KEY
+    ) {
       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
+        {
+          error: "Unauthorized",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
-    // =========================
-    // 1. PROVIDER GEMINI
-    // =========================
-    const provider = await db.provider.upsert({
-      where: {
-        name: "Gemini",
-      },
-      update: {
-        type: "gemini",
-        enabled: true,
-        apiKeyEnv: "GEMINI_API_KEY",
-      },
-      create: {
-        name: "Gemini",
-        type: "gemini",
-        enabled: true,
-        apiKeyEnv: "GEMINI_API_KEY",
-      },
-    });
+    /* =================================================
+       GEMINI PROVIDER
+    ================================================= */
 
-    // =========================
-    // 2. MODEL GEMINI
-    // =========================
+    const gemini =
+      await db.provider.upsert({
+        where: {
+          name: "Gemini",
+        },
+
+        update: {
+          type: "gemini",
+          enabled: true,
+          apiKeyEnv:
+            "GEMINI_API_KEY",
+        },
+
+        create: {
+          name: "Gemini",
+          type: "gemini",
+          enabled: true,
+          apiKeyEnv:
+            "GEMINI_API_KEY",
+        },
+      });
+
+    /* =================================================
+       GEMINI MODEL
+    ================================================= */
+
     await db.modelConfig.upsert({
       where: {
         id: "gemini-flash-primary",
       },
+
       update: {
-        providerId: provider.id,
-        name: "Gemini Flash",
+        providerId: gemini.id,
+        name: "Gemini 3.8 Flash",
         model: "gemini-3.8-flash",
         enabled: true,
         priority: 0,
       },
+
       create: {
         id: "gemini-flash-primary",
-        providerId: provider.id,
-        name: "Gemini Flash",
+        providerId: gemini.id,
+        name: "Gemini 3.8 Flash",
         model: "gemini-3.8-flash",
         enabled: true,
         priority: 0,
       },
     });
 
-    // =========================
-    // 3. VOICE PUTRA
-    // =========================
-    const voice = await db.voice.upsert({
+    /* =================================================
+       GROQ PROVIDER
+    ================================================= */
+
+    const groq =
+      await db.provider.upsert({
+        where: {
+          name: "Groq",
+        },
+
+        update: {
+          type: "groq",
+          enabled: true,
+          apiKeyEnv:
+            "GROQ_API_KEY",
+        },
+
+        create: {
+          name: "Groq",
+          type: "groq",
+          enabled: true,
+          apiKeyEnv:
+            "GROQ_API_KEY",
+        },
+      });
+
+    /* =================================================
+       GROQ MODEL
+    ================================================= */
+
+    await db.modelConfig.upsert({
       where: {
-        id: "putra-browser-voice",
+        id: "groq-llama-primary",
       },
+
       update: {
-        name: "Putra Voice",
-        provider: "browser",
-        language: "id-ID",
+        providerId: groq.id,
+        name: "Groq Llama",
+        model:
+          "llama-3.3-70b-versatile",
         enabled: true,
+        priority: 0,
       },
+
       create: {
-        id: "putra-browser-voice",
-        name: "Putra Voice",
-        provider: "browser",
-        language: "id-ID",
-        description: "Voice Putra menggunakan browser",
+        id: "groq-llama-primary",
+        providerId: groq.id,
+        name: "Groq Llama",
+        model:
+          "llama-3.3-70b-versatile",
         enabled: true,
+        priority: 0,
       },
     });
 
-    // =========================
-    // 4. ASSISTANT PUTRA
-    // =========================
-    const assistant = await db.assistant.upsert({
-      where: {
-        slug: "putra",
-      },
-      update: {
-        name: "Putra",
-        description:
-          "AI Assistant pribadi untuk percakapan, cerita, dan bantuan sehari-hari.",
-        systemPrompt:
-          "Kamu adalah Putra, AI assistant yang ramah, cerdas, cepat, natural, dan membantu pengguna dalam bahasa Indonesia.",
-        enabled: true,
-        providerId: provider.id,
-        voiceId: voice.id,
-      },
-      create: {
-        name: "Putra",
-        slug: "putra",
-        description:
-          "AI Assistant pribadi untuk percakapan, cerita, dan bantuan sehari-hari.",
-        systemPrompt:
-          "Kamu adalah Putra, AI assistant yang ramah, cerdas, cepat, natural, dan membantu pengguna dalam bahasa Indonesia.",
-        enabled: true,
-        providerId: provider.id,
-        voiceId: voice.id,
-      },
-    });
+    /* =================================================
+       PUTRA VOICE
+    ================================================= */
 
-    // =========================
-    // SELESAI
-    // =========================
+    const voice =
+      await db.voice.upsert({
+        where: {
+          id: "putra-browser-voice",
+        },
+
+        update: {
+          name: "Putra Voice",
+          provider: "browser",
+          language: "id-ID",
+          enabled: true,
+        },
+
+        create: {
+          id: "putra-browser-voice",
+          name: "Putra Voice",
+          provider: "browser",
+          language: "id-ID",
+          description:
+            "Voice Putra menggunakan browser",
+          enabled: true,
+        },
+      });
+
+    /* =================================================
+       PUTRA ASSISTANT
+    ================================================= */
+
+    const assistant =
+      await db.assistant.upsert({
+        where: {
+          slug: "putra",
+        },
+
+        update: {
+          name: "Putra",
+
+          description:
+            "AI Assistant pribadi untuk percakapan, cerita, dan bantuan sehari-hari.",
+
+          systemPrompt:
+            "Kamu adalah Putra, AI assistant yang ramah, cerdas, cepat, natural, dan membantu pengguna dalam bahasa Indonesia.",
+
+          enabled: true,
+
+          providerId:
+            gemini.id,
+
+          voiceId:
+            voice.id,
+        },
+
+        create: {
+          name: "Putra",
+
+          slug: "putra",
+
+          description:
+            "AI Assistant pribadi untuk percakapan, cerita, dan bantuan sehari-hari.",
+
+          systemPrompt:
+            "Kamu adalah Putra, AI assistant yang ramah, cerdas, cepat, natural, dan membantu pengguna dalam bahasa Indonesia.",
+
+          enabled: true,
+
+          providerId:
+            gemini.id,
+
+          voiceId:
+            voice.id,
+        },
+      });
+
+    /* =================================================
+       RESULT
+    ================================================= */
+
     return NextResponse.json({
       success: true,
-      message: "Putra berhasil dibuat/diaktifkan.",
+
+      message:
+        "Putra AI berhasil diinisialisasi.",
+
       assistant: {
         id: assistant.id,
         name: assistant.name,
         slug: assistant.slug,
-        enabled: assistant.enabled,
+        enabled:
+          assistant.enabled,
       },
-      provider: {
-        id: provider.id,
-        name: provider.name,
+
+      providers: {
+        gemini: {
+          id: gemini.id,
+          name: gemini.name,
+        },
+
+        groq: {
+          id: groq.id,
+          name: groq.name,
+        },
+      },
+
+      models: {
+        gemini:
+          "gemini-3.8-flash",
+
+        groq:
+          "llama-3.3-70b-versatile",
       },
     });
   } catch (error) {
-    console.error("SETUP_ERROR:", error);
+    console.error(
+      "SETUP_ERROR:",
+      error
+    );
 
     return NextResponse.json(
       {
         success: false,
+
         error:
           error instanceof Error
             ? error.message
             : "Setup gagal",
       },
-      { status: 500 }
+
+      {
+        status: 500,
+      }
     );
   }
 }
