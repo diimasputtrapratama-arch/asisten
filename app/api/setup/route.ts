@@ -45,7 +45,7 @@ export async function GET(req: Request) {
       update: {
         providerId: provider.id,
         name: "Gemini Flash",
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         enabled: true,
         priority: 0,
       },
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
         id: "gemini-flash-primary",
         providerId: provider.id,
         name: "Gemini Flash",
-        model: "gemini-2.5-flash",
+        model: "gemini-3.8-flash",
         enabled: true,
         priority: 0,
       },
