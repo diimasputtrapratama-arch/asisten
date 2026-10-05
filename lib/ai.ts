@@ -80,8 +80,7 @@ async function gemini(
 
       contents,
 
-      generationConfig: {
-        temperature: 0.7,
+      generationConfig: 
         maxOutputTokens: 2048,
       },
     }),
