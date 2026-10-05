@@ -1,1 +1,2 @@
-
+import {NextResponse} from "next/server";import {db} from "@/lib/db";import {requireAdmin} from "@/lib/auth";
+export async function GET(){try{await requireAdmin();return NextResponse.json({items:await db.user.findMany({select:{id:true,email:true,role:true,disabled:true,createdAt:true,profile:{select:{name:true,nickname:true}}},orderBy:{createdAt:"desc"}})})}catch{return NextResponse.json({error:"FORBIDDEN"},{status:403})}}
