@@ -3,10 +3,14 @@ export type ChatMessage = {
   content: string;
 };
 
-export type ProviderResponse = {
-  body: ReadableStream<Uint8Array>;
+export type AIResult = {
+  text: string;
   provider: "gemini" | "groq";
 };
+
+/* =====================================================
+   API KEYS
+===================================================== */
 
 function getApiKey(provider: "gemini" | "groq") {
   if (provider === "gemini") {
@@ -32,23 +36,24 @@ function getApiKey(provider: "gemini" | "groq") {
    GEMINI
 ===================================================== */
 
-async function gemini(
+async function callGemini(
   messages: ChatMessage[],
   system: string
-): Promise<ProviderResponse> {
+): Promise<AIResult> {
   const apiKey = getApiKey("gemini");
 
+  const model = "gemini-3.8-flash";
+
   const contents = messages
-    .filter((message) => message.content?.trim())
-    .map((message) => ({
+    .filter((m) => m.content?.trim())
+    .map((m) => ({
       role:
-        message.role === "assistant"
+        m.role === "assistant"
           ? "model"
           : "user",
-
       parts: [
         {
-          text: message.content,
+          text: m.content,
         },
       ],
     }));
@@ -57,12 +62,10 @@ async function gemini(
     throw new Error("Pesan kosong.");
   }
 
-  const model = "gemini-3.8-flash";
-
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
-    `${encodeURIComponent(model)}:streamGenerateContent` +
-    `?alt=sse&key=${encodeURIComponent(apiKey)}`;
+    `${encodeURIComponent(model)}:generateContent` +
+    `?key=${encodeURIComponent(apiKey)}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -75,9 +78,7 @@ async function gemini(
       systemInstruction: {
         parts: [
           {
-            text:
-              system ||
-              "Kamu adalah Putra, AI assistant yang ramah, cerdas, cepat, dan membantu pengguna dalam bahasa Indonesia.",
+            text: system,
           },
         ],
       },
@@ -86,37 +87,48 @@ async function gemini(
 
       generationConfig: {
         maxOutputTokens: 2048,
+        temperature: 0.7,
       },
     }),
   });
 
+  const raw = await response.text();
+
+  let data: any = null;
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `Gemini mengirim response yang tidak valid. HTTP ${response.status}`
+    );
+  }
+
   if (!response.ok) {
-    const errorText = await response.text();
-
-    let detail = errorText;
-
-    try {
-      const json = JSON.parse(errorText);
-
-      detail =
-        json?.error?.message ||
-        json?.error?.status ||
-        errorText;
-    } catch {}
+    const detail =
+      data?.error?.message ||
+      data?.error?.status ||
+      raw;
 
     throw new Error(
       `Gemini HTTP ${response.status}: ${detail}`
     );
   }
 
-  if (!response.body) {
+  const text =
+    data?.candidates?.[0]?.content?.parts
+      ?.map((part: any) => part?.text || "")
+      .join("")
+      .trim() || "";
+
+  if (!text) {
     throw new Error(
-      "Gemini tidak mengirim response."
+      "Gemini tidak mengembalikan teks jawaban."
     );
   }
 
   return {
-    body: response.body,
+    text,
     provider: "gemini",
   };
 }
@@ -125,10 +137,10 @@ async function gemini(
    GROQ
 ===================================================== */
 
-async function groq(
+async function callGroq(
   messages: ChatMessage[],
   system: string
-): Promise<ProviderResponse> {
+): Promise<AIResult> {
   const apiKey = getApiKey("groq");
 
   const model = "openai/gpt-oss-120b";
@@ -149,9 +161,7 @@ async function groq(
         messages: [
           {
             role: "system",
-            content:
-              system ||
-              "Kamu adalah Putra, AI assistant yang ramah, cerdas, cepat, dan membantu pengguna dalam bahasa Indonesia.",
+            content: system,
           },
 
           ...messages.map((message) => ({
@@ -162,265 +172,125 @@ async function groq(
 
         temperature: 0.7,
 
-        max_tokens: 2048,
+        max_completion_tokens: 2048,
 
-        stream: true,
+        stream: false,
       }),
     }
   );
 
+  const raw = await response.text();
+
+  let data: any = null;
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `Groq mengirim response yang tidak valid. HTTP ${response.status}`
+    );
+  }
+
   if (!response.ok) {
-    const errorText = await response.text();
-
-    let detail = errorText;
-
-    try {
-      const json = JSON.parse(errorText);
-
-      detail =
-        json?.error?.message ||
-        json?.error?.status ||
-        errorText;
-    } catch {}
+    const detail =
+      data?.error?.message ||
+      data?.error?.code ||
+      raw;
 
     throw new Error(
       `Groq HTTP ${response.status}: ${detail}`
     );
   }
 
-  if (!response.body) {
+  const text =
+    data?.choices?.[0]?.message?.content
+      ?.trim() || "";
+
+  if (!text) {
     throw new Error(
-      "Groq tidak mengirim response."
+      "Groq tidak mengembalikan teks jawaban."
     );
   }
 
   return {
-    body: response.body,
+    text,
     provider: "groq",
   };
 }
 
 /* =====================================================
-   PROVIDER + FALLBACK
+   MAIN AI
 ===================================================== */
 
-export async function providerStream(
-  provider: string,
+export async function generateAIResponse(
   messages: ChatMessage[],
-  _model: string,
   system: string
-): Promise<ProviderResponse> {
-  const normalized =
-    provider.toLowerCase();
+): Promise<AIResult> {
+  try {
+    console.log(
+      "PUTRA → mencoba Gemini"
+    );
 
-  if (
-    normalized === "gemini" ||
-    normalized === "google"
-  ) {
-    try {
-      return await gemini(
+    const result =
+      await callGemini(
         messages,
         system
       );
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : String(error);
 
-      console.error(
-        "GEMINI FAILED:",
-        message
+    console.log(
+      "PUTRA → Gemini berhasil"
+    );
+
+    return result;
+  } catch (geminiError) {
+    const message =
+      geminiError instanceof Error
+        ? geminiError.message
+        : String(geminiError);
+
+    console.error(
+      "GEMINI FAILED:",
+      message
+    );
+
+    /*
+     * Kalau Gemini gagal karena apa pun,
+     * coba Groq.
+     *
+     * Jadi fallback tidak hanya bergantung
+     * pada 429/503.
+     */
+
+    try {
+      console.log(
+        "PUTRA → fallback ke Groq"
       );
 
-      const shouldFallback =
-        message.includes("HTTP 429") ||
-        message.includes("HTTP 500") ||
-        message.includes("HTTP 503") ||
-        message.includes("high demand") ||
-        message.includes("overload") ||
-        message.includes("temporarily");
-
-      if (shouldFallback) {
-        console.log(
-          "PUTRA: GEMINI FAILED → FALLBACK TO GROQ"
-        );
-
-        return await groq(
+      const result =
+        await callGroq(
           messages,
           system
         );
-      }
 
-      throw error;
-    }
-  }
+      console.log(
+        "PUTRA → Groq berhasil"
+      );
 
-  if (normalized === "groq") {
-    return await groq(
-      messages,
-      system
-    );
-  }
+      return result;
+    } catch (groqError) {
+      const groqMessage =
+        groqError instanceof Error
+          ? groqError.message
+          : String(groqError);
 
-  throw new Error(
-    `Provider tidak didukung: ${provider}`
-  );
-}
+      console.error(
+        "GROQ FAILED:",
+        groqMessage
+      );
 
-/* =====================================================
-   STREAM NORMALIZER
-===================================================== */
-
-export function normalizeStream(
-  provider: "gemini" | "groq",
-  body: ReadableStream<Uint8Array>
-) {
-  const reader = body.getReader();
-
-  const decoder = new TextDecoder();
-
-  let buffer = "";
-
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result =
-          await reader.read();
-
-        if (result.done) {
-          if (buffer.trim()) {
-            processBuffer(
-              provider,
-              buffer,
-              controller
-            );
-          }
-
-          controller.close();
-
-          return;
-        }
-
-        buffer += decoder.decode(
-          result.value,
-          {
-            stream: true,
-          }
-        );
-
-        const lines =
-          buffer.split(/\r?\n/);
-
-        buffer =
-          lines.pop() ?? "";
-
-        for (const line of lines) {
-          processLine(
-            provider,
-            line,
-            controller
-          );
-        }
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-
-    async cancel() {
-      try {
-        await reader.cancel();
-      } catch {}
-    },
-  });
-}
-
-function processBuffer(
-  provider: "gemini" | "groq",
-  buffer: string,
-  controller: ReadableStreamDefaultController<Uint8Array>
-) {
-  const lines =
-    buffer.split(/\r?\n/);
-
-  for (const line of lines) {
-    processLine(
-      provider,
-      line,
-      controller
-    );
-  }
-}
-
-function processLine(
-  provider: "gemini" | "groq",
-  line: string,
-  controller: ReadableStreamDefaultController<Uint8Array>
-) {
-  const trimmed =
-    line.trim();
-
-  if (!trimmed) {
-    return;
-  }
-
-  let data = trimmed;
-
-  if (data.startsWith("data:")) {
-    data =
-      data.slice(5).trim();
-  }
-
-  if (
-    !data ||
-    data === "[DONE]"
-  ) {
-    return;
-  }
-
-  try {
-    const json =
-      JSON.parse(data);
-
-    let text = "";
-
-    /* -----------------------------
-       GEMINI
-    ----------------------------- */
-
-    if (provider === "gemini") {
-      text =
-        json
-          ?.candidates?.[0]
-          ?.content?.parts
-          ?.map(
-            (
-              part: {
-                text?: string;
-              }
-            ) =>
-              part?.text || ""
-          )
-          .join("") || "";
-    }
-
-    /* -----------------------------
-       GROQ
-    ----------------------------- */
-
-    if (provider === "groq") {
-      text =
-        json
-          ?.choices?.[0]
-          ?.delta?.content || "";
-    }
-
-    if (text) {
-      controller.enqueue(
-        new TextEncoder().encode(text)
+      throw new Error(
+        `Gemini gagal: ${message}\n\nGroq gagal: ${groqMessage}`
       );
     }
-  } catch {
-    // Abaikan data SSE yang belum lengkap/tidak valid.
   }
 }
