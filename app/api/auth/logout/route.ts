@@ -1,0 +1,2 @@
+import {NextResponse} from "next/server";import {cookies} from "next/headers";import {db} from "@/lib/db";import {hashToken} from "@/lib/auth";
+export async function POST(){const t=(await cookies()).get("putra_session")?.value;if(t)await db.session.deleteMany({where:{tokenHash:hashToken(t)}});const r=NextResponse.json({ok:true});r.cookies.delete("putra_session");return r}
