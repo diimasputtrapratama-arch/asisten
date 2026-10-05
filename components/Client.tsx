@@ -49,17 +49,13 @@ export default function Client({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
 
-  const [loading, setLoading] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const [voiceState, setVoiceState] =
     useState<VoiceState>("idle");
 
-  const [autoSpeak, setAutoSpeak] =
-    useState(true);
+  const [autoSpeak, setAutoSpeak] = useState(true);
 
   /* =====================================================
      REFS
@@ -95,7 +91,9 @@ export default function Client({
       messageText ?? input
     ).trim();
 
-    if (!text) return;
+    if (!text) {
+      return;
+    }
 
     if (!assistantId) {
       setError(
@@ -104,7 +102,9 @@ export default function Client({
       return;
     }
 
-    if (loading) return;
+    if (loading) {
+      return;
+    }
 
     setError("");
 
@@ -221,6 +221,7 @@ export default function Client({
         err instanceof Error &&
         err.name === "AbortError"
       ) {
+        setVoiceState("idle");
         return;
       }
 
@@ -306,9 +307,7 @@ export default function Client({
       );
 
     speech.lang = "id-ID";
-
     speech.rate = 1;
-
     speech.pitch = 1;
 
     speech.onstart = () => {
@@ -321,10 +320,10 @@ export default function Client({
 
     speech.onend = () => {
       /*
-       * SANGAT PENTING:
+       * Putra selesai berbicara.
        *
-       * Setelah Putra selesai bicara,
-       * jangan memulai microphone lagi.
+       * Jangan memulai microphone
+       * secara otomatis.
        */
 
       if (mountedRef.current) {
@@ -348,7 +347,18 @@ export default function Client({
   ===================================================== */
 
   function startVoiceInput() {
-    if (loading) return;
+    /*
+     * Kalau sedang memproses request,
+     * jangan mulai microphone baru.
+     */
+
+    if (loading) {
+      return;
+    }
+
+    /* =============================================
+       STOP SPEAKING
+    ============================================= */
 
     if (
       voiceState ===
@@ -360,6 +370,10 @@ export default function Client({
 
       return;
     }
+
+    /* =============================================
+       STOP LISTENING
+    ============================================= */
 
     if (
       voiceState ===
@@ -374,6 +388,10 @@ export default function Client({
 
       return;
     }
+
+    /* =============================================
+       GET SPEECH RECOGNITION
+    ============================================= */
 
     const SpeechRecognition =
       typeof window !==
@@ -394,6 +412,10 @@ export default function Client({
 
     setError("");
 
+    /* =============================================
+       CREATE RECOGNITION
+    ============================================= */
+
     const recognition =
       new SpeechRecognition();
 
@@ -404,7 +426,7 @@ export default function Client({
      * SATU KALI DENGAR.
      *
      * Tidak continuous.
-     * Tidak ada auto-restart.
+     * Tidak ada auto restart.
      */
 
     recognition.lang =
@@ -422,6 +444,10 @@ export default function Client({
     setVoiceState(
       "listening"
     );
+
+    /* =============================================
+       RESULT
+    ============================================= */
 
     recognition.onresult = (
       event: any
@@ -454,6 +480,7 @@ export default function Client({
        * Langsung kirim ke Putra.
        *
        * speakResponse = true
+       * agar jawaban Putra dibacakan.
        */
 
       sendMessage(
@@ -461,6 +488,10 @@ export default function Client({
         true
       );
     };
+
+    /* =============================================
+       ERROR
+    ============================================= */
 
     recognition.onerror = (
       event: any
@@ -477,7 +508,7 @@ export default function Client({
 
       /*
        * Jangan tampilkan error
-       * untuk kasus user membatalkan.
+       * ketika user sengaja membatalkan.
        */
 
       if (
@@ -490,21 +521,28 @@ export default function Client({
       }
     };
 
+    /* =============================================
+       END
+    ============================================= */
+
     recognition.onend = () => {
       /*
-       * JANGAN restart recognition.
+       * Recognition selesai.
+       *
+       * Jangan restart microphone.
+       * Setelah selesai mendengar,
+       * kembali ke IDLE.
        */
 
       recognitionRef.current =
         null;
 
-      if (
-        voiceState ===
-        "listening"
-      ) {
-        setVoiceState("idle");
-      }
+      setVoiceState("idle");
     };
+
+    /* =============================================
+       START
+    ============================================= */
 
     try {
       recognition.start();
@@ -967,7 +1005,7 @@ export default function Client({
           </div>
 
           {/* =========================================
-              FOOTER
+              FOOTER CONTROLS
           ========================================= */}
 
           <div className="flex items-center justify-center gap-3 py-2 text-[11px] text-white/20">
@@ -986,9 +1024,11 @@ export default function Client({
               }
               className="hover:text-white/50"
             >
+
               {autoSpeak
                 ? "🔊 Suara ON"
                 : "🔇 Suara OFF"}
+
             </button>
 
           </div>
