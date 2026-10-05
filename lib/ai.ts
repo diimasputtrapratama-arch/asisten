@@ -31,9 +31,9 @@ function getApiKey(provider: string) {
   throw new Error(`Provider tidak didukung: ${provider}`);
 }
 
-function normalizeRole(role: ChatMessage["role"]) {
-  return role === "assistant" ? "model" : "user";
-}
+/* =====================================================
+   GEMINI
+===================================================== */
 
 async function gemini(
   messages: ChatMessage[],
@@ -45,7 +45,11 @@ async function gemini(
   const contents = messages
     .filter((message) => message.content?.trim())
     .map((message) => ({
-      role: normalizeRole(message.role),
+      role:
+        message.role === "assistant"
+          ? "model"
+          : "user",
+
       parts: [
         {
           text: message.content,
@@ -64,9 +68,11 @@ async function gemini(
 
   const response = await fetch(url, {
     method: "POST",
+
     headers: {
       "Content-Type": "application/json",
     },
+
     body: JSON.stringify({
       systemInstruction: {
         parts: [
@@ -81,19 +87,13 @@ async function gemini(
       contents,
 
       generationConfig: {
-  maxOutputTokens: 2048,
-},
+        maxOutputTokens: 2048,
+      },
     }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-
-    console.error("GEMINI HTTP ERROR:", {
-      status: response.status,
-      statusText: response.statusText,
-      body: errorText,
-    });
 
     let detail = errorText;
 
@@ -104,9 +104,7 @@ async function gemini(
         json?.error?.message ||
         json?.error?.status ||
         errorText;
-    } catch {
-      // response bukan JSON
-    }
+    } catch {}
 
     throw new Error(
       `Gemini HTTP ${response.status}: ${detail}`
@@ -115,7 +113,7 @@ async function gemini(
 
   if (!response.body) {
     throw new Error(
-      "Gemini tidak mengirim response body."
+      "Gemini tidak mengirim response."
     );
   }
 
@@ -123,6 +121,10 @@ async function gemini(
     body: response.body,
   };
 }
+
+/* =====================================================
+   GROQ
+===================================================== */
 
 async function groq(
   messages: ChatMessage[],
@@ -168,12 +170,6 @@ async function groq(
   if (!response.ok) {
     const errorText = await response.text();
 
-    console.error("GROQ HTTP ERROR:", {
-      status: response.status,
-      statusText: response.statusText,
-      body: errorText,
-    });
-
     let detail = errorText;
 
     try {
@@ -183,9 +179,7 @@ async function groq(
         json?.error?.message ||
         json?.error?.status ||
         errorText;
-    } catch {
-      // response bukan JSON
-    }
+    } catch {}
 
     throw new Error(
       `Groq HTTP ${response.status}: ${detail}`
@@ -194,7 +188,7 @@ async function groq(
 
   if (!response.body) {
     throw new Error(
-      "Groq tidak mengirim response body."
+      "Groq tidak mengirim response."
     );
   }
 
@@ -202,6 +196,10 @@ async function groq(
     body: response.body,
   };
 }
+
+/* =====================================================
+   PRIMARY + FALLBACK
+===================================================== */
 
 export async function providerStream(
   provider: string,
@@ -212,21 +210,76 @@ export async function providerStream(
   const normalized =
     provider.toLowerCase();
 
+  /*
+   * GEMINI PRIMARY
+   */
   if (
     normalized === "gemini" ||
     normalized === "google"
   ) {
-    return gemini(messages, model, system);
+    try {
+      return await gemini(
+        messages,
+        "gemini-3.8-flash",
+        system
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error);
+
+      console.error(
+        "GEMINI FAILED:",
+        message
+      );
+
+      /*
+       * Kalau Gemini overload,
+       * rate limit, atau server error,
+       * otomatis pindah ke Groq.
+       */
+      if (
+        message.includes("HTTP 429") ||
+        message.includes("HTTP 503") ||
+        message.includes("HTTP 500") ||
+        message.includes("high demand") ||
+        message.includes("overload")
+      ) {
+        console.log(
+          "FALLBACK → GROQ"
+        );
+
+        return await groq(
+          messages,
+          "llama-3.3-70b-versatile",
+          system
+        );
+      }
+
+      throw error;
+    }
   }
 
+  /*
+   * GROQ
+   */
   if (normalized === "groq") {
-    return groq(messages, model, system);
+    return await groq(
+      messages,
+      "llama-3.3-70b-versatile",
+      system
+    );
   }
 
   throw new Error(
     `Provider tidak didukung: ${provider}`
   );
 }
+
+/* =====================================================
+   STREAM NORMALIZER
+===================================================== */
 
 export function normalizeStream(
   provider: string,
@@ -241,10 +294,10 @@ export function normalizeStream(
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { done, value } =
+        const result =
           await reader.read();
 
-        if (done) {
+        if (result.done) {
           if (buffer.trim()) {
             processBuffer(
               provider,
@@ -257,9 +310,12 @@ export function normalizeStream(
           return;
         }
 
-        buffer += decoder.decode(value, {
-          stream: true,
-        });
+        buffer += decoder.decode(
+          result.value,
+          {
+            stream: true,
+          }
+        );
 
         const lines =
           buffer.split("\n");
@@ -290,7 +346,8 @@ function processBuffer(
   buffer: string,
   controller: ReadableStreamDefaultController<Uint8Array>
 ) {
-  const lines = buffer.split("\n");
+  const lines =
+    buffer.split("\n");
 
   for (const line of lines) {
     processLine(
@@ -306,49 +363,72 @@ function processLine(
   line: string,
   controller: ReadableStreamDefaultController<Uint8Array>
 ) {
-  const trimmed = line.trim();
+  const trimmed =
+    line.trim();
 
   if (!trimmed) return;
 
   let data = trimmed;
 
   if (data.startsWith("data:")) {
-    data = data.slice(5).trim();
+    data = data
+      .slice(5)
+      .trim();
   }
 
-  if (!data || data === "[DONE]") {
+  if (
+    !data ||
+    data === "[DONE]"
+  ) {
     return;
   }
 
   try {
-    const json = JSON.parse(data);
+    const json =
+      JSON.parse(data);
 
     let text = "";
 
+    /*
+     * GEMINI
+     */
     if (
       provider === "gemini" ||
       provider === "google"
     ) {
       text =
-        json?.candidates?.[0]?.content?.parts
-          ?.map((part: { text?: string }) =>
-            part?.text || ""
+        json
+          ?.candidates?.[0]
+          ?.content?.parts
+          ?.map(
+            (
+              part: {
+                text?: string;
+              }
+            ) =>
+              part?.text || ""
           )
           .join("") || "";
     }
 
+    /*
+     * GROQ
+     */
     if (provider === "groq") {
       text =
-        json?.choices?.[0]?.delta?.content ||
-        "";
+        json
+          ?.choices?.[0]
+          ?.delta?.content || "";
     }
 
     if (text) {
       controller.enqueue(
-        new TextEncoder().encode(text)
+        new TextEncoder().encode(
+          text
+        )
       );
     }
   } catch {
-    // Abaikan chunk SSE yang bukan JSON.
+    // Abaikan SSE yang tidak valid.
   }
 }
