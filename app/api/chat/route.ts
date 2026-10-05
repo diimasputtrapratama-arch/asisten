@@ -76,8 +76,10 @@ export async function POST(req: Request) {
     }
 
     const model =
-      assistant.provider?.models?.[0]?.model ||
-      undefined;
+  assistant.provider?.models?.[0]?.model ||
+  (provider === "gemini"
+    ? "gemini-2.5-flash"
+    : "llama-3.3-70b-versatile");
 
     const result = await providerStream(
       provider,
